@@ -1,10 +1,9 @@
 name: Daily Stock Scraping
 
 on:
-  workflow_dispatch: # 手動実行用ボタン
+  workflow_dispatch: # 手動で実行するためのボタン
   schedule:
-    # 毎日 日本時間 深夜2:10（UTC 17:10）にワークフローを開始
-    # ここから下の「ランダム待機」ステップで実際の開始時間をバラけさせます
+    # 毎日 日本時間 深夜2:10（UTC 17:10）に起動
     - cron: '10 17 * * *'
 
 jobs:
@@ -25,9 +24,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas requests
 
-      - name: 🎲 ランダム待機 (0〜6600秒 / 最大110分)
-        # 毎日同じ時間にアクセスしないように、開始時間をランダムに遅らせます
-        # 2:10に起動 + 最大110分待機 ＝ 深夜2:10〜4:00の間にランダムで実行開始
+      - name: 🎲 ランダム待機 (自動実行時のみ 0〜110分)
+        # 手動実行の時はスキップし、夜中の自動実行時のみ待機時間を設けます
         if: github.event_name == 'schedule'
         run: sleep $(( RANDOM % 6600 ))
 
@@ -39,6 +37,7 @@ jobs:
         run: python -u cross.py
 
       - name: Commit and Push changes
+        # GitHubのリポジトリ自体にもCSVを保存しておきます
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "action@github.com"
@@ -46,11 +45,11 @@ jobs:
           git commit -m "Auto-update yutai data" || echo "No changes to commit"
           git push
 
-      - name: 📂 FTPでサーバーにCSVをアップロード
+      - name: 📂 SFTPでサーバーにCSVをアップロード
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
-        # ⚠️ /www/ の部分はサーバーのパスに合わせて変更してください
+        # 💡 ftp:// を sftp:// に変更し、セキュリティ警告回避の -k を追加しています
         run: |
-          curl -T yutai_database_ALL.csv ftp://$FTP_SERVER/www/yutai_database_ALL.csv --user "$FTP_USER:$FTP_PASS"
+          curl -k -T yutai_database_ALL.csv sftp://$FTP_SERVER/www/yutai_database_ALL.csv --user "$FTP_USER:$FTP_PASS"
