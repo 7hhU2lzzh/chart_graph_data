@@ -98,7 +98,7 @@ def get_timeseries_data(code, kenri_md_list):
         return None
 
 if __name__ == "__main__":
-    target_months = [5, 6]
+    target_months = [5]
     
     print(f"🌐 サーバーからJSONデータを取得中: {JSON_URL}")
     try:
