@@ -31,7 +31,7 @@ jobs:
           # 後で設定する「秘密の鍵」をPythonに渡す設定です
           BASIC_USER: ${{ secrets.BASIC_USER }}
           BASIC_PASS: ${{ secrets.BASIC_PASS }}
-        run: python cross.py
+        run: python -u cross.py
 
       - name: Commit and Push changes
         run: |
