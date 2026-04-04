@@ -36,64 +36,86 @@ def get_timeseries_data(code, kenri_md_list):
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200: return None
-        
-        blocks = re.split(r"【([^】]+?)】過去90日間", response.text)
-        if len(blocks) < 3: return None
+        html = response.text
 
         daily_data = {}
-        for i in range(1, len(blocks), 2):
-            broker_name = blocks[i]
-            content = blocks[i+1]
-            if len(broker_name) > 10: continue
-            
-            hz_match = re.search(r"var hz=\[([^\]]*?)\]", content)
-            tz_match = re.search(r"var tz=\[([^\]]*?)\]", content)
-            if not hz_match or not tz_match: continue
-            
-            hz_str = hz_match.group(1).replace("null", "0")
-            tz_str = tz_match.group(1)
 
-            try:
-                stocks = json.loads("[" + hz_str + "]")
-                dates = json.loads("[" + tz_str + "]")
-            except: continue
-            
-            if not dates: continue
-            last_dt = parse_gokigen_date(dates[-1])
-            if not last_dt: continue
-            
-            best_kenri_date, min_diff = None, 9999
-            for (m, d) in kenri_md_list:
-                for y in [last_dt.year, last_dt.year - 1, last_dt.year + 1]:
-                    try:
-                        candidate = datetime(y, m, d)
-                        diff = abs((candidate - last_dt).days)
-                        if diff < min_diff:
-                            min_diff, best_kenri_date = diff, candidate
-                    except: pass
-            
-            if not best_kenri_date: continue
+        # ─── ① 今回データ：【証券名】過去90日間 ブロックから取得 ───
+        blocks = re.split(r"【([^】]+?)】過去90日間", html)
+        if len(blocks) >= 3:
+            for i in range(1, len(blocks), 2):
+                broker_name = blocks[i]
+                content = blocks[i+1]
+                if len(broker_name) > 10: continue
+                _parse_hz_tz(content, broker_name, code, kenri_md_list, daily_data)
 
-            for j in range(len(dates)):
-                date_str = dates[j]
-                curr_dt = parse_gokigen_date(date_str)
-                if not curr_dt: continue
-                days_left = (best_kenri_date - curr_dt).days
-                if days_left < 0: continue
-                
-                try:
-                    num_val = int(stocks[j])
-                except:
-                    num_val = 0
+        # ─── ② 前回権利日データ：*select2() 関数内から取得 ───
+        select2_map = {
+            'nselect2': '日興', 'kselect2': 'カブ', 'rselect2': '楽天',
+            'sselect2': 'SBI',  'gselect2': 'GMO',  'mselect2': '松井',
+            'xselect2': 'マネ'
+        }
+        for func_name, broker_name in select2_map.items():
+            # 関数本体を抽出（90日間データ=1つ目のhz/tzを使う）
+            match = re.search(rf"function {func_name}\(\)\{{(.*?)\}}\s*function", html, re.DOTALL)
+            if not match:
+                match = re.search(rf"function {func_name}\(\)\{{(.*?)\}}", html, re.DOTALL)
+            if not match: continue
+            _parse_hz_tz(match.group(1), broker_name, code, kenri_md_list, daily_data)
 
-                if date_str not in daily_data:
-                    daily_data[date_str] = {"銘柄コード": int(code), "権利年": best_kenri_date.year, 
-                                            "権利日までの日数": days_left, "カレンダー日付": date_str}
-                daily_data[date_str][broker_name] = num_val
-                
-        return list(daily_data.values())
+        return list(daily_data.values()) if daily_data else None
     except:
         return None
+
+
+def _parse_hz_tz(content, broker_name, code, kenri_md_list, daily_data):
+    """contentからvar hz/tzを抽出し、daily_dataに追記する共通処理"""
+    hz_match = re.search(r"var hz=\[([^\]]*?)\]", content)
+    tz_match = re.search(r"var tz=\[([^\]]*?)\]", content)
+    if not hz_match or not tz_match: return
+
+    hz_str = hz_match.group(1).replace("null", "0")
+    tz_str = tz_match.group(1)
+
+    try:
+        stocks = json.loads("[" + hz_str + "]")
+        dates = json.loads("[" + tz_str + "]")
+    except: return
+
+    if not dates: return
+    last_dt = parse_gokigen_date(dates[-1])
+    if not last_dt: return
+
+    best_kenri_date, min_diff = None, 9999
+    for (m, d) in kenri_md_list:
+        for y in [last_dt.year, last_dt.year - 1, last_dt.year + 1]:
+            try:
+                candidate = datetime(y, m, d)
+                diff = abs((candidate - last_dt).days)
+                if diff < min_diff:
+                    min_diff, best_kenri_date = diff, candidate
+            except: pass
+
+    if not best_kenri_date: return
+
+    for j in range(len(dates)):
+        date_str = dates[j]
+        curr_dt = parse_gokigen_date(date_str)
+        if not curr_dt: continue
+        days_left = (best_kenri_date - curr_dt).days
+        if days_left < 0: continue
+
+        try:
+            num_val = int(stocks[j])
+        except:
+            num_val = 0
+
+        # キーを「権利年_日付」にして今年・去年のデータが混在しても分離できるようにする
+        data_key = f"{best_kenri_date.year}_{date_str}"
+        if data_key not in daily_data:
+            daily_data[data_key] = {"銘柄コード": int(code), "権利年": best_kenri_date.year,
+                                    "権利日までの日数": days_left, "カレンダー日付": date_str}
+        daily_data[data_key][broker_name] = num_val
 
 if __name__ == "__main__":
     now_month = datetime.now().month
