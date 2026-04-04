@@ -1,41 +1,55 @@
 name: Daily Stock Scraping
 
 on:
+  workflow_dispatch: # 手動でボタンを押して実行するための設定
   schedule:
-    # 毎日 日本時間 深夜 2:00 (UTC 17:00) に実行
-    - cron: '0 17 * * *'
-  workflow_dispatch: # 手動実行ボタンを出す
+    # 毎日自動で動かす設定（日本時間の深夜0時に実行する場合は '0 15 * * *' にします）
+    # ※自動実行が不要な場合は、下の2行の先頭に # をつけてコメントアウトしてください
+    - cron: '0 15 * * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.9' # お使いのバージョンに合わせて適宜変更してください
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # requirements.txt がある場合は以下のコメントを外してください
+          # pip install -r requirements.txt
+          pip install pandas requests
 
       - name: Run scraping script
         env:
-          # 後で設定する「秘密の鍵」をPythonに渡す設定です
           BASIC_USER: ${{ secrets.BASIC_USER }}
           BASIC_PASS: ${{ secrets.BASIC_PASS }}
+          PYTHONUNBUFFERED: 1 # 💡ログのフリーズを防ぐための設定
+        # 💡 -u をつけてリアルタイムで進捗を表示させる
         run: python -u cross.py
 
       - name: Commit and Push changes
+        # 💡 GitHub上のリポジトリにも新しいCSVを保存する
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
           git add yutai_database_ALL.csv
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update yutai data: $(date +'%Y-%m-%d')" && git push)
+          # 変更がない場合はエラーで止まらないようにする
+          git commit -m "Auto-update yutai data" || echo "No changes to commit"
+          git push
+
+      - name: 📂 FTPでサーバーにCSVをアップロード
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+        # 💡 最後の配達作業。サーバーの指定場所にCSVを直接上書きします
+        run: |
+          curl -T yutai_database_ALL.csv ftp://$FTP_SERVER/www/yutai_database_ALL.csv --user "$FTP_USER:$FTP_PASS"
