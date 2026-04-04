@@ -1,15 +1,22 @@
 import requests
+from requests.auth import HTTPBasicAuth
 import re
 import json
 import time
 import os
 import pandas as pd
+import io
 from datetime import datetime
 
 # --- 設定 ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_FILE = os.path.join(BASE_DIR, "yutai_database_ALL.csv")
-JSON_FILE = os.path.join(BASE_DIR, "stock_full_data.json")
+# GitHub Secretsから環境変数としてBasic認証情報を取得
+BASIC_USER = os.environ.get("BASIC_USER", "admin")
+BASIC_PASS = os.environ.get("BASIC_PASS", "password")
+
+# 💡 seiheki.com のURLを直指定（ご自身のドメインに合っていればこのままでOKです）
+JSON_URL = "https://www.seiheki.com/stock_full_data.json"
+CSV_URL = "https://www.seiheki.com/yutai_database_ALL.csv"
+SAVE_CSV_FILE = "yutai_database_ALL.csv"
 
 BROKERS = ["日興", "カブ", "楽天", "SBI", "GMO", "松井", "マネ"]
 BASE_COLS = ["銘柄コード", "権利年", "権利日までの日数", "カレンダー日付"]
@@ -29,7 +36,7 @@ def get_timeseries_data(code, kenri_md_list):
     url = f"https://gokigen-life.tokyo/{code}yutai/"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200: return None
         
         blocks = re.split(r"【([^】]+?)】過去90日間", response.text)
@@ -91,15 +98,17 @@ def get_timeseries_data(code, kenri_md_list):
         return None
 
 if __name__ == "__main__":
-    # 自動実行時は全月を対象にする
     target_months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     
-    if not os.path.exists(JSON_FILE):
-        print(f"❌ {JSON_FILE} が見つかりません。")
+    print(f"🌐 サーバーからJSONデータを取得中: {JSON_URL}")
+    try:
+        # 💡 Basic認証を突破してJSONを取得
+        res_json = requests.get(JSON_URL, auth=HTTPBasicAuth(BASIC_USER, BASIC_PASS), timeout=10)
+        res_json.raise_for_status()
+        raw_data = res_json.json()
+    except Exception as e:
+        print(f"❌ JSONの取得エラー: {e}")
         exit(1)
-
-    with open(JSON_FILE, "r", encoding="utf-8") as f:
-        raw_data = json.load(f)
 
     kenri_map = {}
     for item in raw_data.get("data", []):
@@ -118,18 +127,24 @@ if __name__ == "__main__":
     target_codes = list(kenri_map.keys())
     print(f"🎯 ターゲット銘柄数: {len(target_codes)}")
 
-    # 既存データの読み込み
-    if os.path.exists(CSV_FILE):
-        old_df = pd.read_csv(CSV_FILE)
-    else:
-        old_df = pd.DataFrame(columns=BASE_COLS + BROKERS)
+    print(f"🌐 サーバーから最新のCSVを取得中: {CSV_URL}")
+    old_df = pd.DataFrame(columns=BASE_COLS + BROKERS)
+    try:
+        # 💡 Basic認証を突破してCSVを直接ダウンロードし、Pandasに読み込ませる
+        res_csv = requests.get(CSV_URL, auth=HTTPBasicAuth(BASIC_USER, BASIC_PASS), timeout=15)
+        if res_csv.status_code == 200:
+            csv_data = res_csv.content.decode('utf-8-sig')
+            old_df = pd.read_csv(io.StringIO(csv_data))
+            print(f"📦 既存データ {len(old_df)} 件を読み込みました。")
+        else:
+            print("⚠️ サーバーにCSVが見つからないため、新規作成として開始します。")
+    except Exception as e:
+        print(f"⚠️ CSVの取得エラー: {e} (新規作成として開始します)")
 
     new_records = []
     for i, code in enumerate(target_codes, 1):
-        # ログ出力（GitHub Actionsのコンソールで見れる）
         if i % 50 == 0:
             print(f"Progress: {i}/{len(target_codes)}")
-            
         res = get_timeseries_data(code, kenri_map[code])
         if res: new_records.extend(res)
         time.sleep(1.2) # 負荷軽減
@@ -147,7 +162,9 @@ if __name__ == "__main__":
             if b not in combined_df.columns:
                 combined_df[b] = None
                 
-        combined_df[BASE_COLS + BROKERS].to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
-        print(f"✅ 更新完了: {len(new_records)} 件のデータを処理しました。")
+        combined_df[BASE_COLS + BROKERS].to_csv(SAVE_CSV_FILE, index=False, encoding="utf-8-sig")
+        print(f"✅ 更新完了: {len(new_records)} 件のデータを追加・上書きし、{SAVE_CSV_FILE} に保存しました。")
     else:
         print("⚠️ 新規データなし。")
+        # エラー回避のため、一応既存のものを保存
+        old_df.to_csv(SAVE_CSV_FILE, index=False, encoding="utf-8-sig")
