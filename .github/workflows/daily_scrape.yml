@@ -1,11 +1,11 @@
 name: Daily Stock Scraping
 
 on:
-  workflow_dispatch: # 手動でボタンを押して実行するための設定
+  workflow_dispatch: # 手動実行用ボタン
   schedule:
-    # 毎日自動で動かす設定（日本時間の深夜0時に実行する場合は '0 15 * * *' にします）
-    # ※自動実行が不要な場合は、下の2行の先頭に # をつけてコメントアウトしてください
-    - cron: '0 15 * * *'
+    # 毎日 日本時間 深夜2:10（UTC 17:10）にワークフローを開始
+    # ここから下の「ランダム待機」ステップで実際の開始時間をバラけさせます
+    - cron: '10 17 * * *'
 
 jobs:
   build:
@@ -18,30 +18,30 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9' # お使いのバージョンに合わせて適宜変更してください
+          python-version: '3.9'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # requirements.txt がある場合は以下のコメントを外してください
-          # pip install -r requirements.txt
           pip install pandas requests
+
+      - name: 🎲 ランダム待機 (0〜6600秒 / 最大110分)
+        # 毎日同じ時間にアクセスしないように、開始時間をランダムに遅らせます
+        # 2:10に起動 + 最大110分待機 ＝ 深夜2:10〜4:00の間にランダムで実行開始
+        run: sleep $(( RANDOM % 6600 ))
 
       - name: Run scraping script
         env:
           BASIC_USER: ${{ secrets.BASIC_USER }}
           BASIC_PASS: ${{ secrets.BASIC_PASS }}
-          PYTHONUNBUFFERED: 1 # 💡ログのフリーズを防ぐための設定
-        # 💡 -u をつけてリアルタイムで進捗を表示させる
+          PYTHONUNBUFFERED: 1
         run: python -u cross.py
 
       - name: Commit and Push changes
-        # 💡 GitHub上のリポジトリにも新しいCSVを保存する
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "action@github.com"
           git add yutai_database_ALL.csv
-          # 変更がない場合はエラーで止まらないようにする
           git commit -m "Auto-update yutai data" || echo "No changes to commit"
           git push
 
@@ -50,6 +50,6 @@ jobs:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
-        # 💡 最後の配達作業。サーバーの指定場所にCSVを直接上書きします
+        # ⚠️ /www/ の部分はサーバーのパスに合わせて変更してください
         run: |
           curl -T yutai_database_ALL.csv ftp://$FTP_SERVER/www/yutai_database_ALL.csv --user "$FTP_USER:$FTP_PASS"
