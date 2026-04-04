@@ -28,6 +28,7 @@ jobs:
       - name: 🎲 ランダム待機 (0〜6600秒 / 最大110分)
         # 毎日同じ時間にアクセスしないように、開始時間をランダムに遅らせます
         # 2:10に起動 + 最大110分待機 ＝ 深夜2:10〜4:00の間にランダムで実行開始
+        if: github.event_name == 'schedule'
         run: sleep $(( RANDOM % 6600 ))
 
       - name: Run scraping script
