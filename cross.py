@@ -205,11 +205,9 @@ if __name__ == "__main__":
             ftp.login(FTP_USER, FTP_PASS)
             ftp.set_pasv(True) # エラーを防ぐパッシブモード
             
-            # /www/ ディレクトリへの移動（なければ直下にアップロード）
-            try:
-                ftp.cwd("/www")
-            except:
-                pass
+            # /home/seiheki/www/ へ移動（さくらVPS構成）
+            ftp.cwd("www")
+            print(f"📂 FTPディレクトリ: {ftp.pwd()}", flush=True)
             
             with open(SAVE_CSV_FILE, 'rb') as f:
                 ftp.storbinary(f'STOR {SAVE_CSV_FILE}', f)
