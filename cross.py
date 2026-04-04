@@ -13,7 +13,6 @@ from datetime import datetime
 BASIC_USER = os.environ.get("BASIC_USER", "admin")
 BASIC_PASS = os.environ.get("BASIC_PASS", "password")
 
-# 💡 seiheki.com のURLを直指定（ご自身のドメインに合っていればこのままでOKです）
 JSON_URL = "https://www.seiheki.com/stock_full_data.json"
 CSV_URL = "https://www.seiheki.com/yutai_database_ALL.csv"
 SAVE_CSV_FILE = "yutai_database_ALL.csv"
@@ -90,7 +89,7 @@ def get_timeseries_data(code, kenri_md_list):
 
                 if date_str not in daily_data:
                     daily_data[date_str] = {"銘柄コード": int(code), "権利年": best_kenri_date.year, 
-                                           "権利日までの日数": days_left, "カレンダー日付": date_str}
+                                            "権利日までの日数": days_left, "カレンダー日付": date_str}
                 daily_data[date_str][broker_name] = num_val
                 
         return list(daily_data.values())
@@ -98,16 +97,21 @@ def get_timeseries_data(code, kenri_md_list):
         return None
 
 if __name__ == "__main__":
-    target_months = [5]
+    # --- 変更点：当月・翌月・翌々月の自動計算 ---
+    now_month = datetime.now().month
+    # 12月の次が1月になるようにモジュロ演算（余り）を使用
+    target_months = [now_month, (now_month % 12) + 1, ((now_month + 1) % 12) + 1]
     
-    print(f"🌐 サーバーからJSONデータを取得中: {JSON_URL}")
+    print(f"📅 今回のターゲット: {target_months}月", flush=True)
+    print(f"🌐 サーバーからJSONデータを取得中: {JSON_URL}", flush=True)
+    
     try:
-        # 💡 Basic認証を突破してJSONを取得
+        # Basic認証を突破してJSONを取得
         res_json = requests.get(JSON_URL, auth=HTTPBasicAuth(BASIC_USER, BASIC_PASS), timeout=10)
         res_json.raise_for_status()
         raw_data = res_json.json()
     except Exception as e:
-        print(f"❌ JSONの取得エラー: {e}")
+        print(f"❌ JSONの取得エラー: {e}", flush=True)
         exit(1)
 
     kenri_map = {}
@@ -125,26 +129,26 @@ if __name__ == "__main__":
             kenri_map[code] = md_list
 
     target_codes = list(kenri_map.keys())
-    print(f"🎯 ターゲット銘柄数: {len(target_codes)}")
+    print(f"🎯 ターゲット銘柄数: {len(target_codes)}", flush=True)
 
-    print(f"🌐 サーバーから最新のCSVを取得中: {CSV_URL}")
+    print(f"🌐 サーバーから最新のCSVを取得中: {CSV_URL}", flush=True)
     old_df = pd.DataFrame(columns=BASE_COLS + BROKERS)
     try:
-        # 💡 Basic認証を突破してCSVを直接ダウンロードし、Pandasに読み込ませる
+        # Basic認証を突破してCSVを直接ダウンロード
         res_csv = requests.get(CSV_URL, auth=HTTPBasicAuth(BASIC_USER, BASIC_PASS), timeout=15)
         if res_csv.status_code == 200:
             csv_data = res_csv.content.decode('utf-8-sig')
             old_df = pd.read_csv(io.StringIO(csv_data))
-            print(f"📦 既存データ {len(old_df)} 件を読み込みました。")
+            print(f"📦 既存データ {len(old_df)} 件を読み込みました。", flush=True)
         else:
-            print("⚠️ サーバーにCSVが見つからないため、新規作成として開始します。")
+            print("⚠️ サーバーにCSVが見つからないため、新規作成として開始します。", flush=True)
     except Exception as e:
-        print(f"⚠️ CSVの取得エラー: {e} (新規作成として開始します)")
+        print(f"⚠️ CSVの取得エラー: {e} (新規作成として開始します)", flush=True)
 
     new_records = []
     for i, code in enumerate(target_codes, 1):
         if i % 50 == 0:
-            print(f"Progress: {i}/{len(target_codes)}")
+            print(f"Progress: {i}/{len(target_codes)}", flush=True)
         res = get_timeseries_data(code, kenri_map[code])
         if res: new_records.extend(res)
         time.sleep(1.2) # 負荷軽減
@@ -163,8 +167,8 @@ if __name__ == "__main__":
                 combined_df[b] = None
                 
         combined_df[BASE_COLS + BROKERS].to_csv(SAVE_CSV_FILE, index=False, encoding="utf-8-sig")
-        print(f"✅ 更新完了: {len(new_records)} 件のデータを追加・上書きし、{SAVE_CSV_FILE} に保存しました。")
+        print(f"✅ 更新完了: {len(new_records)} 件のデータを追加・上書きし、{SAVE_CSV_FILE} に保存しました。", flush=True)
     else:
-        print("⚠️ 新規データなし。")
-        # エラー回避のため、一応既存のものを保存
+        print("⚠️ 新規データなし。", flush=True)
+        # エラー回避のため既存のものを保存
         old_df.to_csv(SAVE_CSV_FILE, index=False, encoding="utf-8-sig")
