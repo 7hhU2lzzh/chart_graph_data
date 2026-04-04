@@ -9,7 +9,6 @@ import io
 from datetime import datetime
 
 # --- 設定 ---
-# GitHub Secretsから環境変数としてBasic認証情報を取得
 BASIC_USER = os.environ.get("BASIC_USER", "admin")
 BASIC_PASS = os.environ.get("BASIC_PASS", "password")
 
@@ -97,16 +96,13 @@ def get_timeseries_data(code, kenri_md_list):
         return None
 
 if __name__ == "__main__":
-    # --- 変更点：当月・翌月・翌々月の自動計算 ---
     now_month = datetime.now().month
-    # 12月の次が1月になるようにモジュロ演算（余り）を使用
     target_months = [now_month, (now_month % 12) + 1, ((now_month + 1) % 12) + 1]
     
     print(f"📅 今回のターゲット: {target_months}月", flush=True)
     print(f"🌐 サーバーからJSONデータを取得中: {JSON_URL}", flush=True)
     
     try:
-        # Basic認証を突破してJSONを取得
         res_json = requests.get(JSON_URL, auth=HTTPBasicAuth(BASIC_USER, BASIC_PASS), timeout=10)
         res_json.raise_for_status()
         raw_data = res_json.json()
@@ -134,7 +130,6 @@ if __name__ == "__main__":
     print(f"🌐 サーバーから最新のCSVを取得中: {CSV_URL}", flush=True)
     old_df = pd.DataFrame(columns=BASE_COLS + BROKERS)
     try:
-        # Basic認証を突破してCSVを直接ダウンロード
         res_csv = requests.get(CSV_URL, auth=HTTPBasicAuth(BASIC_USER, BASIC_PASS), timeout=15)
         if res_csv.status_code == 200:
             csv_data = res_csv.content.decode('utf-8-sig')
@@ -151,7 +146,7 @@ if __name__ == "__main__":
             print(f"Progress: {i}/{len(target_codes)}", flush=True)
         res = get_timeseries_data(code, kenri_map[code])
         if res: new_records.extend(res)
-        time.sleep(1.2) # 負荷軽減
+        time.sleep(1.2)
 
     if new_records:
         new_df = pd.DataFrame(new_records)
@@ -167,8 +162,39 @@ if __name__ == "__main__":
                 combined_df[b] = None
                 
         combined_df[BASE_COLS + BROKERS].to_csv(SAVE_CSV_FILE, index=False, encoding="utf-8-sig")
-        print(f"✅ 更新完了: {len(new_records)} 件のデータを追加・上書きし、{SAVE_CSV_FILE} に保存しました。", flush=True)
+        print(f"✅ 更新完了: {SAVE_CSV_FILE} に保存しました。", flush=True)
     else:
         print("⚠️ 新規データなし。", flush=True)
-        # エラー回避のため既存のものを保存
         old_df.to_csv(SAVE_CSV_FILE, index=False, encoding="utf-8-sig")
+
+    # ==========================================
+    # 💡 ここからが「別のリポと同じ」安全なFTP処理です
+    # ==========================================
+    FTP_HOST = os.environ.get("FTP_HOST")
+    FTP_USER = os.environ.get("FTP_USER")
+    FTP_PASS = os.environ.get("FTP_PASS")
+
+    if FTP_HOST and FTP_USER and FTP_PASS:
+        print(f"🚀 サーバー({FTP_HOST})へFTPアップロードを開始します...", flush=True)
+        import ftplib
+        try:
+            ftp = ftplib.FTP()
+            ftp.connect(FTP_HOST, 21, timeout=15)
+            ftp.login(FTP_USER, FTP_PASS)
+            ftp.set_pasv(True) # エラーを防ぐパッシブモード
+            
+            # /www/ ディレクトリへの移動（なければ直下にアップロード）
+            try:
+                ftp.cwd("/www")
+            except:
+                pass
+            
+            with open(SAVE_CSV_FILE, 'rb') as f:
+                ftp.storbinary(f'STOR {SAVE_CSV_FILE}', f)
+                
+            ftp.quit()
+            print("✅ FTPアップロードに成功しました！", flush=True)
+        except Exception as e:
+            print(f"❌ FTPアップロード失敗: {e}", flush=True)
+    else:
+        print("⚠️ FTP情報が設定されていないため、転送をスキップしました。", flush=True)
