@@ -27,7 +27,7 @@ jobs:
 
       - name: 🎲 ランダム待機 (自動実行時のみ 0〜110分)
         if: github.event_name == 'schedule'
-        run: sleep $(( RANDOM % 6600 ))
+        run: sleep $(( RANDOM % 60 ))
 
       - name: Run scraping script
         env:
