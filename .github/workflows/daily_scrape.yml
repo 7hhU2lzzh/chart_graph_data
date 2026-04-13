@@ -25,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas requests
 
-      - name: 🎲 ランダム待機 (自動実行時のみ 0〜110分)
+      - name: 🎲 ランダム待機 (自動実行時のみ 0〜1分)
         if: github.event_name == 'schedule'
         run: sleep $(( RANDOM % 60 ))
 
